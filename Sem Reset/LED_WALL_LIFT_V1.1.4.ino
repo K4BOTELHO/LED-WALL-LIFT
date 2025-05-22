@@ -1,309 +1,287 @@
-#include <IRremote.h>        //IR
-#include <RCSwitch.h>        //RF
-  
-// Define stepper motor connections and motor interface type. Motor interface type must be set to 1 when using a driver:
+/* --------------------------------------------------------------------------------------------------------------------------------------------------------
 
-#define BSubir 6                      //ACIONAMENTO VALVULA DE SUBIDA
-#define BDescer 8                     //ACIONAMENTO VALVULA DE DESCIDA
-#define ContatoraM 3                  //CONTATORA MOTOR
-#define SensorAbre 4                  //FC DE ABERTURA
-#define SensorFecha 5                 //FC DE FECHAMENTO
-#define SensorWeather A3              //PINO DE LEITURA DO SENSOR DE TEMPO
+Este software é protegido por direitos autorais e leis internacionais. Qualquer cópia não autorizada, distribuição ou uso deste software, total ou parcial,
+será considerada uma violação dos direitos autorais e sujeita a medidas legais. 
+Conforme estipulado pela Lei de Direitos Autorais, Lei nº 9.610/98, a pirataria de software é estritamente proibida e sujeita a penalidades legais. A cópia
+não autorizada deste software constitui uma violação dos direitos de propriedade intelectual, passível de processo civil e criminal.
+Ressaltamos que qualquer tentativa de reprodução, distribuição ou uso não autorizado deste software será monitorada e tratada com rigor dentro dos limites 
+da lei.
 
-#define CCABRE A4                //FC DE FECHAMENTO
-#define CCFECHA A5                 //FC DE ABERTURA
+-------------------------------------------------------------------------------------------------------------------------------------------------------- */
 
-unsigned long int tempobotao = 0;         // Variavel que guarda o momento que comeca a girar o motor
-unsigned long int TempoAbreFecha = 0; 
+#include <IRremote.h>                     // Biblioteca do sistema IR.
+#include <RCSwitch.h>                     // Biblioteca do sistema RF.
+#include <EEPROM.h>                       // Biblioteca EEPROM (Memoria).
 
-char estadoCmdTil = 0; 
+// --------------------------------------------------------------------------------------------------------------------------------------------------------  
+
+#define SolenoideSubir 6                  // Acionamento para a valvula solenoide de sentido "Subir"
+#define SolenoideDescer 8                 // Acionamento para a valvula solenoide de sentido "Descer"
+
+#define ContatoraMotor 3                  // Acionamento para a contatora
+
+#define FCAberto 4                        // Fim de curso que identifica o Led Wall Fift "Aberto".
+#define FCFechado 5                       // Fim de curso que identifica o Led Wall Fift "Fechado".
+
+#define SensorWeather A3                  // Pino de leitura do sensor de velocidade do vento (Weather)
+
+#define CSAberto A4                       // Fim de curso que identifica o Led Wall Fift "Fechado" (Contato seco).
+#define CSFechado A5                      // Fim de curso que identifica o Led Wall Fift "Aberto" (Contato seco).
+
+// --------------------------------------------------------------------------------------------------------------------------------------------------------  
+
+unsigned long int TempoAbreFecha = 0;     // Variavel que guarda o momento.
+
 int ultimoCmdTil = 0;
-int TempMotor = 0;
 
-int CodCmd = 100; 
-int CodIFs = 200;
-int CodExecutation = 300;
+unsigned long int TBotao = 0;             // Variavel que guarda o momento do botão.
 
-int BState1 = HIGH;             // ESTADO DE SAIDA DO PINO
-int BState2 = HIGH;             // ESTADO DE SAIDA DO PINO
-int CState = HIGH;              // ESTADO DE SAIDA DO PINO
+int TMotor = 0;                           // Estado inicial do TMotor.
 
-int estadotil = 0;                  // Estado controle abertura
+int SDescer = HIGH;                       // Estado inicial do SDescer = SolenoideDescer (8).
+int SSubir = HIGH;                        // Estado inicial do SSubir = SolenoideSubir (6).
 
-//----------------------------------------------------- IR
-int RECV_PIN = A2;              // Pino IR
-float armazenavalor;            // Variavel valor do IR
+int CMotor = HIGH;                        // Estado inicial do CMotor = ContatoraMotor (3).
+
+unsigned long tempoMotorAtivado = 0;      // Variável para armazenar o tempo de ativação do motor.
+
+bool motorEmMovimento = false;            // Flag para indicar se o motor está em movimento.
+
+// --------------- IR --------------------------------------------------- IR  --------------------------------------------------- IR ----------------------
+
+int RECV_PIN = A2;                        // Pino IR
+float armazenavalor;                      // Variavel valor do IR
 
 IRrecv irrecv(RECV_PIN);
 decode_results results;
 
-//----------------------------------------------------- CC
+// --------------- CC --------------------------------------------------- CC  --------------------------------------------------- CC ----------------------
 
-int ccoState1;                // the current reading from the input pin
-int lastButtonState1 = LOW;   // the previous reading from the input pin
-unsigned long lastDebounceTime1 = 0;  // the last time the output pin was toggled
-unsigned long debounceDelay1 = 50;    // the debounce time; increase if the output flickers
+int ccoState1;                            // A leitura atual do pino de entrada
+int lastButtonState1 = LOW;               // A leitura anterior do pino de entrada
+unsigned long lastDebounceTime1 = 0;      // A última vez que o pino de saída foi alternado
+unsigned long debounceDelay1 = 50;        // the debounce time; increase if the output flickers
 
-int ccoState2;                // the current reading from the input pin
-int lastButtonState2 = LOW;   // the previous reading from the input pin
-unsigned long lastDebounceTime2 = 0;  // the last time the output pin was toggled
-unsigned long debounceDelay2 = 50;    // the debounce time; increase if the output flickers
+int ccoState2;                            // A leitura atual do pino de entrada
+int lastButtonState2 = LOW;               // A leitura anterior do pino de entrada
+unsigned long lastDebounceTime2 = 0;      // A última vez que o pino de saída foi alternado
+unsigned long debounceDelay2 = 50;        // the debounce time; increase if the output flickers
 
-//----------------------------------------------------- Weather
-int ccoState3;                // the current reading from the input pin
-int lastButtonState3 = LOW;   // the previous reading from the input pin
-unsigned long lastDebounceTime3 = 0;  // the last time the output pin was toggled
-unsigned long debounceDelay3 = 50;    // the debounce time; increase if the output flickers
+// ------------ WEATHER ----------------------------------------------- WEATHER  ----------------------------------------------- WEATHER ------------------
 
-//----------------------------------------------------- RF
+int ccoState3;                            // A leitura atual do pino de entrada
+int lastButtonState3 = LOW;               // A leitura anterior do pino de entrada
+unsigned long lastDebounceTime3 = 0;      // A última vez que o pino de saída foi alternado
+unsigned long debounceDelay3 = 50;        // O tempo de rejeição; aumentar se a saída piscar
+
+// --------------- RF --------------------------------------------------- RF  --------------------------------------------------- RF ----------------------
 
 RCSwitch mySwitch = RCSwitch();
 
-void setup()
-{
-  pinMode(BDescer, OUTPUT);          // Define os pinos dos motores como saida
-  pinMode(BSubir, OUTPUT);           // Define os pinos dos motores como saida
-  pinMode(ContatoraM, OUTPUT);       // Define os pinos dos motores como saida
-  pinMode(SensorFecha, INPUT);       // Define os pinos dos motores como saida
-  pinMode(SensorAbre, INPUT);        // Define os pinos dos motores como saida
-  pinMode(CCABRE, INPUT);       // Define os pinos dos motores como saida
-  pinMode(CCFECHA, INPUT);        // Define os pinos dos motores como saida
-  pinMode(SensorWeather, INPUT);        // Define os pinos dos motores como saida
-  pinMode(13, OUTPUT);               // Define os pinos dos motores como saida
-  
-  digitalWrite(BDescer, BState1);    // Define o estado inicial
-  digitalWrite(BSubir, BState2);     // Define o estado inicial
-  digitalWrite(ContatoraM, CState);  // Define o estado inicial
-  
-  irrecv.enableIRIn();               // Inicializa o receptor IR
+// --------------------------------------------------------------------------------------------------------------------------------------------------------  
 
-  mySwitch.enableReceive(0);         // Receiver on interrupt 0 => that is pin #2
+void setup(){
+
+  pinMode(SolenoideDescer, OUTPUT);          // Define o pino que vai para a Solenoide do sentido "Descer" como uma saida.
+  pinMode(SolenoideSubir, OUTPUT);           // Define o pino que vai para a Solenoide do sentido "Subir" como uma saida.
+  pinMode(ContatoraMotor, OUTPUT);           // Define o pino que vai para a Contatora como saida.
   
-  Serial.begin(9600);
+  pinMode(FCFechado, INPUT);                 // Define o pino que vai para o Fim de Curso "Fechado" como uma entrada.
+  pinMode(FCAberto, INPUT);                  // Define o pino que vai para o Fim de Curso "Aberto" como uma entrada.
+  
+  pinMode(CSAberto, INPUT);                  // Define o pino que vai para o Contato Seco "Aberto" como uma entrada.
+  pinMode(CSFechado, INPUT);                 // Define o pino que vai para o Contato Seco "Fechado" como uma entrada.
+  
+  pinMode(SensorWeather, INPUT);             // Define o pino que vai para o Weather como entrada.
+  
+  digitalWrite(SolenoideDescer, SDescer);    // Define o estado inicial da Solenoide com acionamento para "Descer".
+  digitalWrite(SolenoideSubir, SSubir);      // Define o estado inicial da Solenoide com acionamento para "Subir".
+  
+  digitalWrite(ContatoraMotor, CMotor);      // Define o estado inicial da Contatora.
+
+  irrecv.enableIRIn();                       // Inicializa o receptor IR.
+
+  mySwitch.enableReceive(0);                 // Indica que a interrupção 0 está associada ao pino 2 do microcontrolador.
+  
+  Serial.begin(115200);                      // Taxa de atualização da Serial.
 
 }
 
-void loop() {
+// --------------------------------------------------------------------------------------------------------------------------------------------------------  
 
-  //----------------------------------------------------- LOOP DO RF
+void loop() {
+ContatoSAbrir();
+ContatoSFechar();
+Weather();
+TPMotor();
+
+// --------------- LOOP DO SERIAL --------------------------------------------------- LOOP DO SERIAL ------------------------------------------------------
+// Utilizado apenas ao conectar no computador!
+
+      if (Serial.available() > 0) {
+        char letra = Serial.read();
+            if (letra == 'i'){                 // Comando para "SUBIR" o LED WALL LIFT via SERIAL.
+                    Subir();
+                    Serial.print("Comando para SUBIR o LED WALL LIFT via SERIAL foi acionado");
+                    
+            } else if (letra == 'o'){          // Comando para "DESCER" o LED WALL LIFT via SERIAL.
+                    Descer();
+                    Serial.print("Comando para DESCER o LED WALL LIFT via SERIAL foi acionado"); 
+                    
+            } else if (letra == 'p'){          // Comando para "PARAR" o LED WALL LIFT via SERIAL.
+                    PararGeral();
+                    Serial.print("Comando para PARAR o LED WALL LIFT via SERIAL foi acionado");
+       } 
+}
+// --------------- LOOP DO RF --------------------------------------------------- LOOP DO RF --------------------------------------------------------------
 
     if (mySwitch.available()) {
 
     int value = mySwitch.getReceivedValue();
      if (value == 0){
      Serial.print("Codigo desconhecido");
-     CodCmd = 101; // ##################################################### Codigo RF Desconhecido
      } else {
       
-      if (mySwitch.getReceivedValue() == 5592368) {             //*******SUBIR
-           if (millis() - tempobotao >= 500){
+      if (mySwitch.getReceivedValue() == 1200031) {             // Comando para "SUBIR" o LED WALL LIFT via RF.
+           if (millis() - TBotao >= 650){
                Subir();  
            }   
-      } else if (mySwitch.getReceivedValue() == 5592512) {      //*******DESCER
-           if (millis() - tempobotao >= 500){
+      } else if (mySwitch.getReceivedValue() == 1200032) {      // Comando para "DESCER" o LED WALL LIFT via RF.
+           if (millis() - TBotao >= 650){
                Descer();     
            }
-      } else if (mySwitch.getReceivedValue() == 5592560) {      //*******PARAR
-           if (millis() - tempobotao >= 500){
-               PararControl();
+      } else if (mySwitch.getReceivedValue() == 1200033) {      // Comando para "PARAR" o LED WALL LIFT via RF.
+           if (millis() - TBotao >= 650){
+               PararGeral();
            }     
       }        
    }
          
-    Serial.print("Received ");
-    Serial.println( mySwitch.getReceivedValue() );
+    Serial.print("Recebido");
+    Serial.println( mySwitch.getReceivedValue() ); //Informa o valor do codigo RF.
     
     mySwitch.resetAvailable();
   }
-  
-  
-  //----------------------------------------------------- LOOP DO IR
- 
 
+// --------------- LOOP DO IR --------------------------------------------------- LOOP DO IR -------------------------------------------------------------- 
+ 
   if (irrecv.decode(&results)) {
     
     Serial.print("Valor lido : ");
     Serial.println(results.value, HEX);
     armazenavalor = (results.value);
-    if (armazenavalor == 0x202708F || armazenavalor == 0x6EDFE961)            //*******SUBIR
+    
+    if (armazenavalor == 0x202708F || armazenavalor == 0x6EDFE961)            // Comando para "SUBIR" o LED WALL LIFT via IR.
     {
-      if (millis() - tempobotao >= 500){
+      if (millis() - TBotao >= 500){
           Subir();
-          CodCmd = 108; // ##################### Subir via IR
       }
     }
-    else if (armazenavalor == 0x202D02F || armazenavalor == 0x76B366E3 )      //*******DESCER
+    
+    else if (armazenavalor == 0x202D02F || armazenavalor == 0x76B366E3 )      // Comando para "DESCER" o LED WALL LIFT via IR.
     {
-      if (millis() - tempobotao >= 500){
+      if (millis() - TBotao >= 500){
           Descer();
-          CodCmd = 109; // ##################### Descer via IR
       }
     }
-    else if (armazenavalor == 0x923F150B || armazenavalor == 0x202B04F)       //*******PARAR
+    
+    else if (armazenavalor == 0x923F150B || armazenavalor == 0x202B04F)       // Comando para "PARAR" o LED WALL LIFT via IR.
     {
-      if (millis() - tempobotao >= 500){
-          PararControl();
-          CodCmd = 110; // ##################### Direito via IR
+      if (millis() - TBotao >= 500){
+          PararGeral();
       }      
     }
-    irrecv.resume(); //Le o próximo valor
-}
+    
+    irrecv.resume();
+  }
 
-  //----------------------------------------------------- LOOP DO SERIAL
-  
-      if (Serial.available() > 0) {
-        char letra = Serial.read();
-            if (letra == 'w'){                 //*******SUBIR
-                    Subir();
-                    CodCmd = 117; // ##################################################### Subir via Serial
-                    
-            } else if (letra == 's'){          //*******DESCER
-                    Descer();
-                    CodCmd = 118; // ##################################################### Descer via Serial
-                    
-            } else if (letra == 'q'){          //*******PARAR
-                    PararControl();
-                    CodCmd = 119; // ##################################################### Parar via Serial
-                    
-            } 
-}
-
-ContatoSecoAbre();
-ContatoSecoFecha();
-Weather();
-
-    if (TempMotor > 0){
-        if (millis() - TempoAbreFecha >= 1700){
-          
-            TempMotor = 0;
-            digitalWrite(BDescer, BState1);              // ESCREVE NOS PINOS
-            digitalWrite(BSubir, BState2);               // ESCREVE NOS PINOS
-            CodIFs = 201; // ##################################################### IF do Encoder
-         }
-      }
-
-
-if (ultimoCmdTil > 0){
+ if (ultimoCmdTil > 0){
    
-      if (digitalRead(SensorAbre) == LOW) {
+      if (digitalRead(FCAberto) == LOW) {
             if (ultimoCmdTil == 2){
-             PararControl();
+             PararGeral();
             }
           }
-      if (digitalRead(SensorFecha) == LOW ) {
+      if (digitalRead(FCFechado) == LOW ) {
             if (ultimoCmdTil == 1){
-             PararControl();
+             PararGeral();
             }
-      }
-}
-/*
-if (millis() - TempoAbreFecha >= 5000){
-    if (digitalRead(Sensor) == LOW) {
-          if (CState == LOW){
-              PararControl();
-          }
     }
+  }   
 }
-*/
-   /*   
-if (CState == HIGH) {
-      if (digitalRead(Sensor) == LOW){
-        PararControl();
-      }
-}*/
-/*
-   if (controleoff == 10 && controleoff2 == 10 && volta == true){
-            if (digitalRead(pinoSensor) == LOW){          // No centro -> Posicao correta
-              
-                Subir();
-                CodIFs = 202; // ##################################################### IF da subida automatica
-         }        
-      }
-      
-   if (millis() - TempoAbreFecha >= 27000){   //750
-            PararControl();
-            CodIFs = 204; // ##################################################### IF do Encoder
-   }
-*/
-            
-   /*if (controleoff == 0) {
-       if (Position == 62500 || Position == -62500){
-          PararControl();
-          CodIFs = 203; // ##################################################### IF da posicao de 90 graus
-       }
-   }*/
-//Serial.println(ultimoCmdTil);             
-digitalWrite(ContatoraM, CState);
-digitalWrite(13, digitalRead(SensorAbre)); 
 
-}
-//----------------------------------------------------------------------
+// -------------------------------------------------------------------------------------------------------------------------------------------------------- 
 
 void Subir() {
-             TempoAbreFecha = millis();
-             tempobotao = millis();
+   TBotao = millis();
 
-             CState = LOW;
-             digitalWrite(ContatoraM, CState);
+   CMotor = LOW;
+   digitalWrite(ContatoraMotor, CMotor);
 
-             BState1 = LOW;                             //VALVULA SOLENOIDE
-             BState2 = HIGH;                             //VALVULA SOLENOIDE
+   SDescer = LOW;                            // Desaciona a Solenoide para o LED WALL LIFT "Descer". 
+   SSubir = HIGH;                            // Aciona a Solenoide para o LED WALL LIFT "Subir".                       
+   
+   delay(800);                               // Tempo de internalo entre o acionamento do motor apor o freio ser liberado.
+   
+   digitalWrite(SolenoideDescer, SDescer);   // Define o estado inicial da Solenoide com acionamento para "Descer".
+   digitalWrite(SolenoideSubir, SSubir);     // Define o estado inicial da Solenoide com acionamento para "Subir".;
+   
+   TMotor = 1;
 
-             TempMotor = 1;
-             ultimoCmdTil = 1;
-             estadoCmdTil = 10;
-             
-             
-             /*
-             digitalWrite(BDescer, BState1);   // ESCREVE NOS PINOS
-             digitalWrite(BSubir, BState2);               // ESCREVE NOS PINOS
-             */
-             
-            
-             Serial.println("SUBINDO");
-             CodExecutation = 301; // ##################################################### Funcao subir Executada        
+   motorEmMovimento = true;                  // Indica que o motor está em movimento.
+   tempoMotorAtivado = millis();             // Marca o tempo de ativação do motor.  
+          
+   Serial.println("Comando para SUBIR o LED WALL LIFT foi acionado");
 }
+
+// -------------------------------------------------------------------------------------------------------------------------------------------------------- 
 
 void Descer() {
-         TempoAbreFecha = millis();
-         tempobotao = millis();
+   TBotao = millis();
 
-         CState = LOW;
-         digitalWrite(ContatoraM, CState);
+   CMotor = LOW;
+   digitalWrite(ContatoraMotor, CMotor);
              
-         BState1 = HIGH;                             //VALVULA SOLENOIDE
-         BState2 = LOW;                             //VALVULA SOLENOIDE
+   SDescer = HIGH;                           // Acionado a Solenoide para o LED WALL LIFT "Descer".                              
+   SSubir = LOW;                             // Desaciona a Solenoide para o LED WALL LIFT "Subir".                         
+  
+  delay(800);                                // Tempo de internalo entre o acionamento do motor apor o freio ser liberado.
+
+  digitalWrite(SolenoideDescer, SDescer);    // Define o estado inicial da Solenoide com acionamento para "Descer".
+  digitalWrite(SolenoideSubir, SSubir);      // Define o estado inicial da Solenoide com acionamento para "Subir".
+
+   TMotor = 1;
          
-         TempMotor = 1;
-         ultimoCmdTil = 2;
-         estadoCmdTil = 10;
-         
-         /*
-         digitalWrite(BDescer, BState1);   // ESCREVE NOS PINOS
-         digitalWrite(BSubir, BState2);               // ESCREVE NOS PINOS
-         */
-         Serial.println("DESCENDO");
-         CodExecutation = 303; // ##################################################### Funcao descer Executada   
+   motorEmMovimento = true;                  // Indica que o motor está em movimento.
+   tempoMotorAtivado = millis();             // Marca o tempo de ativação do motor.
+
+   Serial.println("Comando para DESCER o LED WALL LIFT foi acionado");  
 }
 
-void PararControl() {
-         tempobotao = millis();
+// -------------------------------------------------------------------------------------------------------------------------------------------------------- 
 
-         BState1 = HIGH;                             //VALVULA SOLENOIDE
-         BState2 = HIGH;                             //VALVULA SOLENOIDE
-         CState = HIGH;
+void PararGeral() {
+   TBotao = millis();
+
+   SDescer = HIGH;                           // Desaciona a Solenoide para o LED WALL LIFT "Descer".                           
+   SSubir = HIGH;                            // Desaciona a Solenoide para o LED WALL LIFT "Subir".                     
+   CMotor = HIGH;                            // Desaciona a Contatora para o LED WALL LIFT.
          
-         digitalWrite(BDescer, BState1);               // ESCREVE NOS PINOS
-         digitalWrite(BSubir, BState2);               // ESCREVE NOS PINOS
-         digitalWrite(ContatoraM, CState);
+   digitalWrite(SolenoideDescer, SDescer);    // Define o estado inicial da Solenoide com acionamento para "Descer".
+   digitalWrite(SolenoideSubir, SSubir);      // Define o estado inicial da Solenoide com acionamento para "Subir".               
+   digitalWrite(ContatoraMotor, CMotor);
 
-         ultimoCmdTil = 0;
-         TempMotor = 0;
-         Serial.println("PARANDO");
+   TMotor = 0;
+
+   motorEmMovimento = false;                 // Para indicar que o motor não está mais em movimento.   
+
+   Serial.println("Comando para PARAR o LED WALL LIFT foi acionado");
 }
 
-void ContatoSecoAbre(){  // declaração da função espera 
-   int reading1 = digitalRead(CCABRE);
+// -------------------------------------------------------------------------------------------------------------------------------------------------------- 
+
+void ContatoSAbrir(){  // declaração da função espera 
+   int reading1 = digitalRead(CSAberto);
 
     if (reading1 != lastButtonState1) {
     // reset the debouncing timer
@@ -316,7 +294,7 @@ void ContatoSecoAbre(){  // declaração da função espera
 
          if (ccoState1 == LOW) {
 
-            if (millis() - tempobotao >= 500){
+            if (millis() - TBotao >= 500){
               Subir();
             }
         }
@@ -324,11 +302,13 @@ void ContatoSecoAbre(){  // declaração da função espera
   }
      // save the reading. Next time through the loop, it'll be the lastButtonState:
      lastButtonState1 = reading1;
-     //Serial.println("ContatoSeco() Executou");
+ 
 }
 
-void ContatoSecoFecha(){  // declaração da função espera 
-   int reading2 = digitalRead(CCFECHA);
+// -------------------------------------------------------------------------------------------------------------------------------------------------------- 
+
+void ContatoSFechar(){  // declaração da função espera 
+   int reading2 = digitalRead(CSFechado);
 
     if (reading2 != lastButtonState2) {
     // reset the debouncing timer
@@ -341,7 +321,7 @@ void ContatoSecoFecha(){  // declaração da função espera
 
          if (ccoState2 == LOW) {
 
-            if (millis() - tempobotao >= 500){
+            if (millis() - TBotao >= 500){
                Descer();
             }
         }
@@ -351,6 +331,8 @@ void ContatoSecoFecha(){  // declaração da função espera
      lastButtonState2 = reading2;
      //Serial.println("ContatoSeco() Executou");
 }
+
+// -------------------------------------------------------------------------------------------------------------------------------------------------------- 
 
 void Weather(){  // declaração da função espera 
    int reading3 = digitalRead(SensorWeather);
@@ -366,7 +348,7 @@ void Weather(){  // declaração da função espera
 
          if (ccoState3 == LOW) {
 
-            if (millis() - tempobotao >= 500){
+            if (millis() - TBotao >= 500){
                Subir();
             }
         }
@@ -376,3 +358,17 @@ void Weather(){  // declaração da função espera
      lastButtonState3 = reading3;
      //Serial.println("ContatoSeco() Executou");
 }
+
+// --------------------------------------------------------------------------------------------------------------------------------------------------------
+
+// Usado para controlar e saber o estado dos dois Fim de Curso, seja eles o Aberto, quanto o Fechado.
+void TPMotor() { 
+    
+         // Verifica se o motor está ligado por mais de 4 minutos sem acionar nenhum fim de curso.
+  if (motorEmMovimento && (millis() - tempoMotorAtivado >= 240000)) {
+    PararGeral();
+    Serial.println("Motor foi desligado automaticamente após 4 minutos sem atingir o fim de curso.");
+  }
+ }
+
+// --------------------------------------------------------------------------------------------------------------------------------------------------------
